@@ -47,13 +47,12 @@ func (r *RSyncRunner) Start(ctx context.Context) {
 				}
 				nodes, err := r.storageLocation.GetNodes()
 				if err != nil {
-					log.Errorf("Failed to get Storage Locations with error %v", err)
+					log.Errorf("Failed to get deamon set nodes with error %v", err)
 					continue
 				}
 				locationsToSync := make([]models.StoragePodLocation, 0, len(storageLocations))
 				nodesToSync := make([]models.Node, 0, len(storageLocations))
 				for _, stLocation := range storageLocations {
-					fmt.Printf("stLocation: %v currentNode: %v\n", stLocation.GetNodeName(), r.currentNodeName)
 					if stLocation.GetNodeName() == r.currentNodeName {
 						locationsToSync = append(locationsToSync, stLocation)
 					}
@@ -63,7 +62,9 @@ func (r *RSyncRunner) Start(ctx context.Context) {
 						nodesToSync = append(nodesToSync, node)
 					}
 				}
-				fmt.Printf("Preparing to run node for locations: %v\n", locationsToSync)
+				log.Debug("nodes: %v", nodes)
+				log.Debug("Nodes to Sync: %v", nodesToSync)
+				log.Debug("locationsToSync to Sync: %v", locationsToSync)
 				if len(locationsToSync) > 0 {
 					r.runRSyncCommand(locationsToSync, nodesToSync)
 				}
@@ -98,16 +99,20 @@ func (r *RSyncRunner) runRSyncCommand(syncList []models.StoragePodLocation, node
 			arg1 := path
 			arg2 := "root@" + n.GetIP() + ":" + root
 
+			log.Infof("[RSyncRunner] Running command: %s %s %s %s", rsync, arg0, arg1, arg2)
 			cmd := exec.Command(rsync, arg0, arg1, arg2)
 			stdout, err := cmd.Output()
 
 			if err != nil {
-				log.Fatal(err.Error())
+				log.Errorf("Failed to run rsync command with error %v", err)
+				//log.Fatal(err.Error())
 				return
 			}
 
+			log.Infof("[RSyncRunner] Starting Command output:")
 			// Print the output
 			fmt.Println(string(stdout))
+			log.Infof("[RSyncRunner] Finished Command output")
 		}
 
 	}

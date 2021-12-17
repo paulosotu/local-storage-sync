@@ -70,13 +70,12 @@ func main() {
 	}()
 
 	if err := run(ctx); err != nil {
-		log.Fatalf("%s\n", err)
+		log.Fatalf("[main] Fatal error: %s", err)
 	}
 }
 
 func run(ctx context.Context) error {
-	config := ctx.Value(CONFIG_KEY).(models.Config)
-	knService, err := startKubeCorePVCService(ctx, config.Namespace, config.Selector)
+	knService, err := startKubeCorePVCService(ctx)
 	if err != nil {
 		return err
 	}
@@ -104,10 +103,10 @@ func startRSyncRunnerService(ctx context.Context, storageService services.Storag
 	return serv, nil
 }
 
-func startKubeCorePVCService(ctx context.Context, ns, label string) (*services.KubeCorePVCService, error) {
+func startKubeCorePVCService(ctx context.Context) (*services.KubeCorePVCService, error) {
 	config := ctx.Value(CONFIG_KEY).(models.Config)
 
-	knService := services.NewKubeCorePVCService(ns, config.RunInCluster, label)
+	knService := services.NewKubeCorePVCService(config)
 	knService.Start()
 
 	log.Info("Waiting For KubeCorePVCService readiness!")

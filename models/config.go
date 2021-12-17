@@ -7,13 +7,13 @@ import (
 const (
 	exitCodeErr         = 1
 	exitCodeInterrupt   = 0
-	defaultLogLevel     = "Info"
+	defaultLogLevel     = "INFO"
 	defaultTimerTick    = 10
 	defaultDataDir      = "/data-sync"
-	defaultNodeName     = "my-node"
+	defaultNodeName     = "raspberry2"
 	defaultRunInCluster = false
-	defaultNamespace    = "default"
 	defaultSelector     = ""
+	defaultDSAppName    = "storage-sync"
 )
 
 type Config struct {
@@ -22,16 +22,16 @@ type Config struct {
 	TimerTick         int
 	DataDir           string
 	NodeName          string
+	DSAppName         string
 	LogLevel          string
-	Namespace         string
 	Selector          string
 	RunInCluster      bool
 }
 
 func NewConfigFromArgs() *Config {
 	ret := &Config{}
-	// do a piece of work,
-	flag.StringVar(&ret.Namespace, "namespace", defaultNamespace, "k8 Namespace where the stateful set are running")
+
+	flag.StringVar(&ret.DSAppName, "app", defaultDSAppName, "k8 App deamon set app name")
 	flag.StringVar(&ret.Selector, "s", defaultSelector, "Label selector")
 	flag.StringVar(&ret.LogLevel, "l", defaultLogLevel, "Log level")
 	flag.IntVar(&ret.TimerTick, "t", defaultTimerTick, "RSync refresh tick")

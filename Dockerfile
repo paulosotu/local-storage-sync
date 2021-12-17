@@ -6,13 +6,13 @@ RUN apk add --update gcc=10.3.1_git20210424-r2 g++=10.3.1_git20210424-r2
 RUN apk --no-cache add   \
         git              
 RUN mkdir -p /app
-WORKDIR /app
-COPY go.* /app
-COPY *.go /app
+WORKDIR /app/
+COPY go.* /app/
+COPY *.go /app/
 COPY models /app/models
 COPY services /app/services
 COPY utils /app/utils
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags '-linkmode external -w -extldflags "-static"' ./...
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags '-linkmode external -w -extldflags "-static"'
 
 FROM alpine:latest
 ENV PRIVATE_CERT coiso
@@ -30,7 +30,7 @@ RUN apk --update add --no-cache openssh bash \
   && sed -i s/#PasswordAuthentication.*/PasswordAuthentication\ no/  /etc/ssh/sshd_config \
   && sed -i s/#PermitEmptyPasswords.*/PermitEmptyPasswords\ no/  /etc/ssh/sshd_config \
   && sed -i s/#ChallengeResponseAuthentication.*/ChallengeResponseAuthentication\ no/  /etc/ssh/sshd_config \
-  && sed -i s/#UsePAM.*/UsePAM\ no/  /etc/ssh/sshd_config \
+  # && sed -i s/#UsePAM.*/UsePAM\ no/  /etc/ssh/sshd_config \
   && sed -i s/#\ \ \ StrictHostKeyChecking.*/\ \ \ StrictHostKeyChecking\ no/  /etc/ssh/ssh_config \
   && rm -rf /var/cache/apk/*
 
@@ -42,9 +42,10 @@ RUN mkdir -p /root/.ssh
 RUN chmod 700 /root/.ssh
 ENV NOTVISIBLE "in users profile"
 RUN echo "export VISIBLE=now" >> /etc/profile
-COPY --from=0 /app /bin
+COPY --from=builder /app/local-storage-sync /bin/local-storage-sync
 COPY ./run.sh /bin/run.sh
 EXPOSE 22
 RUN chmod 777 /bin/run.sh
 
-ENTRYPOINT "/bin/run.sh"
+CMD ["sh", "/bin/run.sh"]
+

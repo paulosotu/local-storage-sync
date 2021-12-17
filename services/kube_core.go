@@ -37,11 +37,11 @@ type KubeCorePVCService struct {
 
 	pvClaimLister corelisters.PersistentVolumeClaimLister
 	podLister     corelisters.PodLister
-	nodeLister    corelisters.NodeLister
 
 	pvClaimSynced cache.InformerSynced
 	podSynced     cache.InformerSynced
-	nodeSynced    cache.InformerSynced
+
+	config models.Config
 
 	started bool
 
@@ -51,13 +51,15 @@ type KubeCorePVCService struct {
 	shutdownch chan struct{}
 }
 
-func NewKubeCorePVCService(namespace string, inCluster bool, label string) *KubeCorePVCService {
+func NewKubeCorePVCService(cfg models.Config) *KubeCorePVCService {
 	var err error
 	var config *rest.Config
 
-	if inCluster {
+	if cfg.RunInCluster {
+		log.Debug("Should run inside the cluster")
 		config, err = rest.InClusterConfig()
 	} else {
+		log.Debug("Should run outside the cluster")
 		kubeconfig := filepath.Join(
 			os.Getenv("HOME"), ".kube", "config",
 		)
@@ -74,92 +76,36 @@ func NewKubeCorePVCService(namespace string, inCluster bool, label string) *Kube
 	pvcFactory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
 		time.Second*refresh_time,
-		informers.WithNamespace(namespace),
 		informers.WithTweakListOptions(
 			func(opt *metav1.ListOptions) {
-				opt.LabelSelector = label
+				opt.LabelSelector = cfg.Selector
 			},
 		),
 	)
-	podAndNodeFactory := informers.NewSharedInformerFactoryWithOptions(
+
+	podFactory := informers.NewSharedInformerFactoryWithOptions(
 		clientset,
 		time.Second*refresh_time,
-		informers.WithNamespace(namespace),
 	)
 
 	ret := &KubeCorePVCService{
 		pvcFactory:     pvcFactory,
-		podNodeFactory: podAndNodeFactory,
+		podNodeFactory: podFactory,
 		started:        false,
 	}
+
 	informerPVC := pvcFactory.Core().V1().PersistentVolumeClaims()
-	informerPVC.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    ret.newPVC,
-		UpdateFunc: ret.updatePVC,
-		DeleteFunc: ret.deletePVC,
-	})
-
-	informerPod := podAndNodeFactory.Core().V1().Pods()
-	informerPod.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    ret.newPod,
-		UpdateFunc: ret.updatePod,
-		DeleteFunc: ret.deletePod,
-	})
-
-	informerNode := podAndNodeFactory.Core().V1().Nodes()
+	informerPod := podFactory.Core().V1().Pods()
 
 	ret.pvClaimLister = informerPVC.Lister()
 	ret.pvClaimSynced = informerPVC.Informer().HasSynced
 
 	ret.podLister = informerPod.Lister()
-	ret.nodeLister = informerNode.Lister()
 	ret.podSynced = informerPod.Informer().HasSynced
-	ret.nodeSynced = informerNode.Informer().HasSynced
+
+	ret.config = cfg
 
 	return ret
-}
-
-func (k *KubeCorePVCService) newPVC(obj interface{}) {
-	pvc := obj.(*corev1.PersistentVolumeClaim)
-	log.Debugf("[NEW PVC] - %s\n", pvc.Name)
-}
-
-func (k *KubeCorePVCService) updatePVC(oldObj, newObj interface{}) {
-	newPVC := newObj.(*corev1.PersistentVolumeClaim)
-	oldPVC := oldObj.(*corev1.PersistentVolumeClaim)
-
-	log.Debugf("[UPDATE PVC] - %s -> %s\n", oldPVC.Name, newPVC.Name)
-
-	if newPVC.ResourceVersion == oldPVC.ResourceVersion {
-		// only update when new is different from old.
-		return
-	}
-}
-
-func (k *KubeCorePVCService) deletePVC(obj interface{}) {
-	pvc := obj.(*corev1.PersistentVolumeClaim)
-	log.Debugf("[DELETE PVC] - %s\n", pvc.Name)
-}
-
-func (k *KubeCorePVCService) newPod(obj interface{}) {
-	pod := obj.(*corev1.Pod)
-	log.Debugf("[NEW POD] - %s\n", pod.Name)
-}
-
-func (k *KubeCorePVCService) updatePod(oldObj, newObj interface{}) {
-	newPod := newObj.(*corev1.Pod)
-	oldPod := oldObj.(*corev1.Pod)
-
-	log.Debugf("[UPDATE POD] - %s -> %s\n", oldPod.Name, newPod.Name)
-	if newPod.ResourceVersion == oldPod.ResourceVersion {
-		// only update when new is different from old.
-		return
-	}
-}
-
-func (k *KubeCorePVCService) deletePod(obj interface{}) {
-	pod := obj.(*corev1.Pod)
-	log.Debugf("[DELETE POD] - %s\n", pod.Name)
 }
 
 func (k *KubeCorePVCService) Start() {
@@ -180,7 +126,7 @@ func (k *KubeCorePVCService) Start() {
 	k.started = true
 
 	go func() {
-		if ok := cache.WaitForCacheSync(k.stopch, k.pvClaimSynced, k.podSynced, k.nodeSynced); !ok {
+		if ok := cache.WaitForCacheSync(k.stopch, k.pvClaimSynced, k.podSynced); !ok {
 			k.Stop()
 			log.Error("failed to wait for caches to sync")
 			return
@@ -205,34 +151,16 @@ func (k *KubeCorePVCService) WaitForReady(ctx context.Context) bool {
 	}
 }
 
-func (k *KubeCorePVCService) GetNodes() ([]models.Node, error) {
-	nodes, err := k.nodeLister.List(labels.Everything())
+func (k *KubeCorePVCService) GetStorageLocations() ([]models.StoragePodLocation, error) {
+	var statefulsets []*corev1.Pod
+
+	req, err := labels.NewRequirement("syncronize-nodes", selection.Equals, []string{"true"})
 	if err != nil {
 		return nil, err
 	}
-	ret := make([]models.Node, 0, len(nodes))
-	for _, node := range nodes {
-		var ip string
-		for _, add := range node.Status.Addresses {
-			if add.Type == corev1.NodeInternalIP {
-				ip = add.Address
-				break
-			}
-
-		}
-		ret = append(ret, *models.NewNode(node.Name, ip, string(node.Status.Phase)))
-	}
-	return ret, nil
-}
-
-func (k *KubeCorePVCService) GetStorageLocations() ([]models.StoragePodLocation, error) {
-	// req, err := labels.NewRequirement("syncronize-nodes", selection.Equals, []string{"true"})
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// pvcs, err := k.pvClaimLister.List(labels.NewSelector().Add(*req))
-	var req *labels.Requirement
-	pvcs, err := k.pvClaimLister.List(labels.Everything())
+	pvcs, err := k.pvClaimLister.List(labels.NewSelector().Add(*req))
+	// var req *labels.Requirement
+	// pvcs, err := k.pvClaimLister.List(labels.Everything())
 	if err != nil {
 		return nil, err
 	} else if len(pvcs) < 1 {
@@ -244,13 +172,32 @@ func (k *KubeCorePVCService) GetStorageLocations() ([]models.StoragePodLocation,
 		return nil, err
 	}
 
-	pods, err := k.podLister.List(labels.NewSelector().Add(*req))
-	if err != nil {
+	if statefulsets, err = k.podLister.List(labels.NewSelector().Add(*req)); err != nil {
 		return nil, err
 	}
-	pvcToPod := k.createPodMapForPVC(pods, pvcMap)
+
+	pvcToPod := k.createPodMapForPVC(statefulsets, pvcMap)
 
 	return k.createStoragePodLocationList(pvcToPod, pvcMap), err
+}
+
+func (k *KubeCorePVCService) GetNodes() ([]models.Node, error) {
+	var storageSyncPods []*corev1.Pod = nil
+	var req *labels.Requirement = nil
+	var err error = nil
+
+	if req, err = labels.NewRequirement("app", selection.In, []string{k.config.DSAppName}); err != nil {
+		return nil, err
+	}
+	if storageSyncPods, err = k.podLister.List(labels.NewSelector().Add(*req)); err != nil {
+		return nil, err
+	}
+	ret := make([]models.Node, 0, len(storageSyncPods))
+	for _, pod := range storageSyncPods {
+		ret = append(ret, *models.NewNode(pod.Spec.NodeName, pod.Status.PodIP, string(pod.Status.Phase)))
+	}
+
+	return ret, err
 }
 
 func (k *KubeCorePVCService) Stop() {
