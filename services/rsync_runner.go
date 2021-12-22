@@ -98,9 +98,10 @@ func (r *RSyncRunner) runRSyncCommand(syncList []models.StoragePodLocation, node
 			arg0 := "-avzh"
 			arg1 := path
 			arg2 := "root@" + n.GetIP() + ":" + root
+			arg3 := "--delete"
 
-			log.Infof("[RSyncRunner] Running command: %s %s %s %s", rsync, arg0, arg1, arg2)
-			cmd := exec.Command(rsync, arg0, arg1, arg2)
+			log.Infof("[RSyncRunner] Running command: %s %s %s %s", rsync, arg0, arg1, arg2, arg3)
+			cmd := exec.Command(rsync, arg0, arg1, arg2, arg3)
 			stdout, err := cmd.Output()
 
 			if err != nil {
