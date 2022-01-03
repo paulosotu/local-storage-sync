@@ -222,6 +222,7 @@ func (k *KubeCorePVCService) createStoragePodLocationList(pvcToPod map[string]co
 			pvc.Name,
 			pvc.Namespace,
 			pvcToPod[pvc.Name].Name,
+			pvcToPod[pvc.Name].Status.PodIP,
 			pvc.Spec.VolumeName,
 			pvc.Status,
 		))

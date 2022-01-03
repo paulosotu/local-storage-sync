@@ -14,15 +14,17 @@ type StoragePodLocation struct {
 	bindPodName string
 	pvcStatus   corev1.PersistentVolumeClaimStatus
 	pvName      string
+	podIp       string
 }
 
-func NewStoragePodLocation(nodeName, nodeIp, pvcName, namespace, bindPodName, pvName string, pvcStatus corev1.PersistentVolumeClaimStatus) *StoragePodLocation {
+func NewStoragePodLocation(nodeName, nodeIp, pvcName, namespace, bindPodName, podIp, pvName string, pvcStatus corev1.PersistentVolumeClaimStatus) *StoragePodLocation {
 	return &StoragePodLocation{
 		nodeName:    nodeName,
 		nodeIp:      nodeIp,
 		pvcName:     pvcName,
 		namespace:   namespace,
 		bindPodName: bindPodName,
+		podIp:       podIp,
 		pvcStatus:   pvcStatus,
 		pvName:      pvName,
 	}
@@ -42,6 +44,10 @@ func (s *StoragePodLocation) GetNodeIp() string {
 
 func (s *StoragePodLocation) GetPVCName() string {
 	return s.pvcName
+}
+
+func (s *StoragePodLocation) GetPodIp() string {
+	return s.podIp
 }
 
 func (s *StoragePodLocation) GetBindPodName() string {

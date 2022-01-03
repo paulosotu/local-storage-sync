@@ -62,9 +62,9 @@ func (r *RSyncRunner) Start(ctx context.Context) {
 						nodesToSync = append(nodesToSync, node)
 					}
 				}
-				log.Debug("nodes: %v", nodes)
-				log.Debug("Nodes to Sync: %v", nodesToSync)
-				log.Debug("locationsToSync to Sync: %v", locationsToSync)
+				log.Debugf("nodes: %v", nodes)
+				log.Debugf("Nodes to Sync: %v", nodesToSync)
+				log.Debugf("locationsToSync to Sync: %v", locationsToSync)
 				if len(locationsToSync) > 0 {
 					r.runRSyncCommand(locationsToSync, nodesToSync)
 				}
