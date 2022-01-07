@@ -44,7 +44,7 @@ func initLogger(logLevel string) {
 func main() {
 	config := models.NewConfigFromArgs()
 
-	initLogger(config.LogLevel)
+	initLogger(config.GetLogLevel())
 
 	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), CONFIG_KEY, *config))
 
@@ -60,7 +60,7 @@ func main() {
 			return
 		}
 		<-sigs // second signal, hard exit
-		os.Exit(config.ExitCodeInterrupt)
+		os.Exit(config.GetExitCodeInterrupt())
 
 	}()
 
@@ -98,7 +98,7 @@ func run(ctx context.Context) error {
 func startRSyncRunnerService(ctx context.Context, storageService services.StorageLocationService) (*services.RSyncRunner, error) {
 	config := ctx.Value(CONFIG_KEY).(models.Config)
 
-	serv := services.NewRSyncRunner(config.TimerTick, storageService, config.NodeName, config.DataDir)
+	serv := services.NewRSyncRunner(&config, storageService)
 	serv.Start(ctx)
 	return serv, nil
 }
@@ -106,7 +106,7 @@ func startRSyncRunnerService(ctx context.Context, storageService services.Storag
 func startKubeCorePVCService(ctx context.Context) (*services.KubeCorePVCService, error) {
 	config := ctx.Value(CONFIG_KEY).(models.Config)
 
-	knService := services.NewKubeCorePVCService(config)
+	knService := services.NewKubeCorePVCService(&config)
 	knService.Start()
 
 	log.Info("Waiting For KubeCorePVCService readiness!")

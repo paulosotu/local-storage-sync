@@ -31,6 +31,12 @@ const (
 	refresh_time = 3
 )
 
+type KubeCoreConfig interface {
+	GetDSAppName() string
+	GetSelector() string
+	ShouldRunInCluster() bool
+}
+
 type KubeCorePVCService struct {
 	pvcFactory     informers.SharedInformerFactory
 	podNodeFactory informers.SharedInformerFactory
@@ -41,7 +47,7 @@ type KubeCorePVCService struct {
 	pvClaimSynced cache.InformerSynced
 	podSynced     cache.InformerSynced
 
-	config models.Config
+	config KubeCoreConfig
 
 	started bool
 
@@ -51,11 +57,11 @@ type KubeCorePVCService struct {
 	shutdownch chan struct{}
 }
 
-func NewKubeCorePVCService(cfg models.Config) *KubeCorePVCService {
+func NewKubeCorePVCService(cfg KubeCoreConfig) *KubeCorePVCService {
 	var err error
 	var config *rest.Config
 
-	if cfg.RunInCluster {
+	if cfg.ShouldRunInCluster() {
 		log.Debug("Should run inside the cluster")
 		config, err = rest.InClusterConfig()
 	} else {
@@ -78,7 +84,7 @@ func NewKubeCorePVCService(cfg models.Config) *KubeCorePVCService {
 		time.Second*refresh_time,
 		informers.WithTweakListOptions(
 			func(opt *metav1.ListOptions) {
-				opt.LabelSelector = cfg.Selector
+				opt.LabelSelector = cfg.GetSelector()
 			},
 		),
 	)
@@ -186,7 +192,7 @@ func (k *KubeCorePVCService) GetNodes() ([]models.Node, error) {
 	var req *labels.Requirement = nil
 	var err error = nil
 
-	if req, err = labels.NewRequirement("app", selection.In, []string{k.config.DSAppName}); err != nil {
+	if req, err = labels.NewRequirement("app", selection.In, []string{k.config.GetDSAppName()}); err != nil {
 		return nil, err
 	}
 	if storageSyncPods, err = k.podLister.List(labels.NewSelector().Add(*req)); err != nil {

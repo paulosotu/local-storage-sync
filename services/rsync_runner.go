@@ -24,12 +24,19 @@ type RSyncRunner struct {
 	rootDataPath    string
 }
 
-func NewRSyncRunner(tick int, storage StorageLocationService, nodeName, dataPath string) *RSyncRunner {
+type SyncConfig interface {
+	GetTimerTick() int
+	GetNodeName() string
+	GetDataDir() string
+}
+
+//.GetTimerTick, storageService, config.NodeName, config.DataDir
+func NewRSyncRunner(cfg SyncConfig, storage StorageLocationService) *RSyncRunner {
 	return &RSyncRunner{
-		ticker:          time.NewTicker(time.Duration(tick) * time.Second),
+		ticker:          time.NewTicker(time.Duration(cfg.GetTimerTick()) * time.Second),
 		storageLocation: storage,
-		currentNodeName: nodeName,
-		rootDataPath:    dataPath,
+		currentNodeName: cfg.GetNodeName(),
+		rootDataPath:    cfg.GetDataDir(),
 	}
 }
 
