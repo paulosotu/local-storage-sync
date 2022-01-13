@@ -4,15 +4,16 @@ RUN apk update
 RUN apk upgrade
 RUN apk add --update gcc=10.3.1_git20210424-r2 g++=10.3.1_git20210424-r2
 RUN apk --no-cache add   \
-        git              
+  git              
 RUN mkdir -p /app
 WORKDIR /app/
-COPY go.* /app/
-COPY *.go /app/
-COPY models /app/models
-COPY services /app/services
-COPY utils /app/utils
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags '-linkmode external -w -extldflags "-static"'
+COPY cmd /app/cmd
+COPY pkg /app/pkg
+COPY bin /app/bin
+COPY vendor /app/vendor
+COPY go.mod /app/go.mod
+
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/bin/local-storage-sync -ldflags '-linkmode external -w -extldflags "-static"' /app/cmd/local-storage-sync/main.go
 
 FROM alpine:latest
 ENV PRIVATE_CERT coiso
@@ -21,7 +22,7 @@ RUN apk update
 RUN apk upgrade
 RUN apk add --no-cache 
 RUN apk add --update --no-cache    \
-		                 rsync
+  rsync
 
 # Installing the openssh and bash package, removing the apk cache
 RUN apk --update add --no-cache openssh bash \
@@ -42,8 +43,8 @@ RUN mkdir -p /root/.ssh
 RUN chmod 700 /root/.ssh
 ENV NOTVISIBLE "in users profile"
 RUN echo "export VISIBLE=now" >> /etc/profile
-COPY --from=builder /app/local-storage-sync /bin/local-storage-sync
-COPY ./run.sh /bin/run.sh
+COPY --from=builder /app/bin/local-storage-sync /bin/local-storage-sync
+COPY ./scripts/run.sh /bin/run.sh
 EXPOSE 22
 RUN chmod 777 /bin/run.sh
 
