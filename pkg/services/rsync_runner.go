@@ -107,7 +107,7 @@ func (r *RSyncRunner) runRSyncCommand(syncList []models.StoragePodLocation, node
 			arg2 := "root@" + n.GetIP() + ":" + root
 			arg3 := "--delete"
 
-			log.Infof("[RSyncRunner] Running command: %s %s %s %s", rsync, arg0, arg1, arg2, arg3)
+			log.Infof("[RSyncRunner] Running command: %s %s %s %s %s", rsync, arg0, arg1, arg2, arg3)
 			cmd := exec.Command(rsync, arg0, arg1, arg2, arg3)
 			stdout, err := cmd.Output()
 

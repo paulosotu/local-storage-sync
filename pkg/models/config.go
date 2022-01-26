@@ -44,6 +44,67 @@ func NewConfigFromArgs() *Config {
 	return ret
 }
 
+type ConfigOption func(c *Config)
+
+func NewConfig(opts ...ConfigOption) *Config {
+	ret := &Config{
+		dsAppName:    defaultDSAppName,
+		selector:     defaultSelector,
+		logLevel:     defaultLogLevel,
+		timerTick:    defaultTimerTick,
+		dataDir:      defaultDataDir,
+		nodeName:     defaultNodeName,
+		runInCluster: defaultRunInCluster,
+	}
+	for _, opt := range opts {
+		opt(ret)
+	}
+
+	return ret
+}
+
+func WithAppName(name string) ConfigOption {
+	return func(c *Config) {
+		c.dsAppName = name
+	}
+}
+
+func WithSelector(name string) ConfigOption {
+	return func(c *Config) {
+		c.selector = name
+	}
+}
+
+func WithLogLevel(level string) ConfigOption {
+	return func(c *Config) {
+		c.logLevel = level
+	}
+}
+
+func WithTimerTick(t int) ConfigOption {
+	return func(c *Config) {
+		c.timerTick = t
+	}
+}
+
+func WithDataDir(d string) ConfigOption {
+	return func(c *Config) {
+		c.dataDir = d
+	}
+}
+
+func WithNodeName(n string) ConfigOption {
+	return func(c *Config) {
+		c.nodeName = n
+	}
+}
+
+func WithRunInCluster(r bool) ConfigOption {
+	return func(c *Config) {
+		c.runInCluster = r
+	}
+}
+
 func (c *Config) GetLogLevel() string {
 	return c.logLevel
 }

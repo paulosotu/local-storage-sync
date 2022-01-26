@@ -16,6 +16,26 @@ type ContextKey string
 
 const CONFIG_KEY = ContextKey("config")
 
+func main() {
+	os.Exit(doMain())
+}
+
+func doMain() int {
+	config := models.NewConfigFromArgs()
+
+	initLogger(config.GetLogLevel())
+
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), CONFIG_KEY, *config))
+
+	handleSignal(ctx, cancel, config)
+
+	if err := run(ctx); err != nil {
+		log.Fatalf("[main] Fatal error: %s", err)
+		return 1
+	}
+	return 0
+}
+
 func initLogger(logLevel string) {
 	// Log as JSON instead of the default ASCII formatter.
 	log.SetFormatter(&log.TextFormatter{})
@@ -41,13 +61,7 @@ func initLogger(logLevel string) {
 	}
 }
 
-func main() {
-	config := models.NewConfigFromArgs()
-
-	initLogger(config.GetLogLevel())
-
-	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), CONFIG_KEY, *config))
-
+func handleSignal(ctx context.Context, cancel context.CancelFunc, config *models.Config) {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt)
 
@@ -61,17 +75,12 @@ func main() {
 		}
 		<-sigs // second signal, hard exit
 		os.Exit(config.GetExitCodeInterrupt())
-
 	}()
 
 	defer func() { // all the cleanup here please
 		cancel()
 		close(sigs)
 	}()
-
-	if err := run(ctx); err != nil {
-		log.Fatalf("[main] Fatal error: %s", err)
-	}
 }
 
 func run(ctx context.Context) error {

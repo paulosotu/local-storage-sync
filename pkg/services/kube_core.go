@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 )
 
 const (
@@ -37,7 +38,22 @@ type KubeCoreConfig interface {
 	ShouldRunInCluster() bool
 }
 
+type IKubeCorePVCService interface {
+	Start()
+	WaitForReady(context.Context) bool
+	GetStorageLocations() ([]models.StoragePodLocation, error)
+	GetNodes() ([]models.Node, error)
+	Stop()
+}
+
 type KubeCorePVCService struct {
+	started bool
+
+	stopch  chan struct{}
+	readych chan struct{}
+
+	shutdownch chan struct{}
+
 	pvcFactory     informers.SharedInformerFactory
 	podNodeFactory informers.SharedInformerFactory
 
@@ -47,14 +63,11 @@ type KubeCorePVCService struct {
 	pvClaimSynced cache.InformerSynced
 	podSynced     cache.InformerSynced
 
+	waitForCacheToSync  func(controllerName string, stopCh <-chan struct{}, cacheSyncs ...cache.InformerSynced) bool
+	newLabelRequirement func(string, selection.Operator, []string, ...field.PathOption) (*labels.Requirement, error)
+	addLabelRequirement func(*labels.Requirement) labels.Selector
+
 	config KubeCoreConfig
-
-	started bool
-
-	stopch  chan struct{}
-	readych chan struct{}
-
-	shutdownch chan struct{}
 }
 
 func NewKubeCorePVCService(cfg KubeCoreConfig) *KubeCorePVCService {
@@ -71,9 +84,11 @@ func NewKubeCorePVCService(cfg KubeCoreConfig) *KubeCorePVCService {
 		)
 		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 	}
+
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		log.Fatal(err)
@@ -95,9 +110,17 @@ func NewKubeCorePVCService(cfg KubeCoreConfig) *KubeCorePVCService {
 	)
 
 	ret := &KubeCorePVCService{
-		pvcFactory:     pvcFactory,
-		podNodeFactory: podFactory,
-		started:        false,
+		pvcFactory:          pvcFactory,
+		podNodeFactory:      podFactory,
+		started:             false,
+		waitForCacheToSync:  cache.WaitForNamedCacheSync,
+		newLabelRequirement: labels.NewRequirement,
+		addLabelRequirement: func(req *labels.Requirement) labels.Selector {
+			return labels.NewSelector().Add(*req)
+		},
+		stopch:     make(chan struct{}),
+		readych:    make(chan struct{}),
+		shutdownch: make(chan struct{}),
 	}
 
 	informerPVC := pvcFactory.Core().V1().PersistentVolumeClaims()
@@ -116,12 +139,9 @@ func NewKubeCorePVCService(cfg KubeCoreConfig) *KubeCorePVCService {
 
 func (k *KubeCorePVCService) Start() {
 	if k.started {
-		log.Fatal("KubeCorePVCService already started...")
+		log.Error("KubeCorePVCService already started...")
+		return
 	}
-
-	k.stopch = make(chan struct{})
-	k.readych = make(chan struct{})
-	k.shutdownch = make(chan struct{})
 
 	defer runtime.HandleCrash()
 	log.Info("starting KubeCorePVCService")
@@ -132,17 +152,19 @@ func (k *KubeCorePVCService) Start() {
 	k.started = true
 
 	go func() {
-		if ok := cache.WaitForCacheSync(k.stopch, k.pvClaimSynced, k.podSynced); !ok {
-			k.Stop()
+		defer log.Info("[KubeCorePVCService] service terminated")
+		defer close(k.shutdownch)
+		if ok := k.waitForCacheToSync("KubeCorePVCService.Start", k.stopch, k.pvClaimSynced, k.podSynced); !ok {
+			go k.Stop()
 			log.Error("failed to wait for caches to sync")
 			return
 		}
 
 		close(k.readych)
 
-		_, k.started = <-k.stopch
-		log.Info("[KubeCorePVCService] service terminated")
-		close(k.shutdownch)
+		<-k.stopch
+		k.started = false
+
 	}()
 }
 
@@ -160,11 +182,11 @@ func (k *KubeCorePVCService) WaitForReady(ctx context.Context) bool {
 func (k *KubeCorePVCService) GetStorageLocations() ([]models.StoragePodLocation, error) {
 	var statefulsets []*corev1.Pod
 
-	req, err := labels.NewRequirement("syncronize-nodes", selection.Equals, []string{"true"})
+	req, err := k.newLabelRequirement("syncronize-nodes", selection.Equals, []string{"true"})
 	if err != nil {
 		return nil, err
 	}
-	pvcs, err := k.pvClaimLister.List(labels.NewSelector().Add(*req))
+	pvcs, err := k.pvClaimLister.List(k.addLabelRequirement(req))
 	// var req *labels.Requirement
 	// pvcs, err := k.pvClaimLister.List(labels.Everything())
 	if err != nil {
@@ -174,11 +196,11 @@ func (k *KubeCorePVCService) GetStorageLocations() ([]models.StoragePodLocation,
 	}
 	pvcMap, appNameSet := k.createPVCSList(pvcs)
 
-	if req, err = labels.NewRequirement("app", selection.In, appNameSet.GetValues()); err != nil {
+	if req, err = k.newLabelRequirement("app", selection.In, appNameSet.GetValues()); err != nil {
 		return nil, err
 	}
 
-	if statefulsets, err = k.podLister.List(labels.NewSelector().Add(*req)); err != nil {
+	if statefulsets, err = k.podLister.List(k.addLabelRequirement(req)); err != nil {
 		return nil, err
 	}
 
@@ -192,10 +214,10 @@ func (k *KubeCorePVCService) GetNodes() ([]models.Node, error) {
 	var req *labels.Requirement = nil
 	var err error = nil
 
-	if req, err = labels.NewRequirement("app", selection.In, []string{k.config.GetDSAppName()}); err != nil {
+	if req, err = k.newLabelRequirement("app", selection.In, []string{k.config.GetDSAppName()}); err != nil {
 		return nil, err
 	}
-	if storageSyncPods, err = k.podLister.List(labels.NewSelector().Add(*req)); err != nil {
+	if storageSyncPods, err = k.podLister.List(k.addLabelRequirement(req)); err != nil {
 		return nil, err
 	}
 	ret := make([]models.Node, 0, len(storageSyncPods))
@@ -222,15 +244,20 @@ func (k *KubeCorePVCService) createStoragePodLocationList(pvcToPod map[string]co
 	ret := make([]models.StoragePodLocation, 0, len(pvcs))
 
 	for _, pvc := range pvcs {
+		var pod corev1.Pod
+		var ok bool
+		if pod, ok = pvcToPod[pvc.Name]; !ok {
+			log.Warnf("Found a volume claim but couldn't find binding pod: %v", pvc.Name)
+			continue
+		}
 		ret = append(ret, *models.NewStoragePodLocation(
-			pvcToPod[pvc.Name].Spec.NodeName,
-			pvcToPod[pvc.Name].Status.HostIP,
+			pod.Spec.NodeName,
+			pod.Status.HostIP,
 			pvc.Name,
 			pvc.Namespace,
-			pvcToPod[pvc.Name].Name,
-			pvcToPod[pvc.Name].Status.PodIP,
+			pod.Name,
+			pod.Status.PodIP,
 			pvc.Spec.VolumeName,
-			pvc.Status,
 		))
 	}
 
@@ -249,6 +276,7 @@ func (k *KubeCorePVCService) createPodMapForPVC(pods []*corev1.Pod, pvcMap map[s
 			}
 		}
 	}
+
 	return pvcToPod
 }
 

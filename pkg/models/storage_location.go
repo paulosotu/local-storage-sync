@@ -2,8 +2,6 @@ package models
 
 import (
 	"fmt"
-
-	corev1 "k8s.io/api/core/v1"
 )
 
 type StoragePodLocation struct {
@@ -12,12 +10,11 @@ type StoragePodLocation struct {
 	pvcName     string
 	namespace   string
 	bindPodName string
-	pvcStatus   corev1.PersistentVolumeClaimStatus
 	pvName      string
 	podIp       string
 }
 
-func NewStoragePodLocation(nodeName, nodeIp, pvcName, namespace, bindPodName, podIp, pvName string, pvcStatus corev1.PersistentVolumeClaimStatus) *StoragePodLocation {
+func NewStoragePodLocation(nodeName, nodeIp, pvcName, namespace, bindPodName, podIp, pvName string) *StoragePodLocation {
 	return &StoragePodLocation{
 		nodeName:    nodeName,
 		nodeIp:      nodeIp,
@@ -25,13 +22,12 @@ func NewStoragePodLocation(nodeName, nodeIp, pvcName, namespace, bindPodName, po
 		namespace:   namespace,
 		bindPodName: bindPodName,
 		podIp:       podIp,
-		pvcStatus:   pvcStatus,
 		pvName:      pvName,
 	}
 }
 
 func (s *StoragePodLocation) String() string {
-	return fmt.Sprintf("%-32s%-45s%-28s%-22s%-22s%-8s\n", s.pvcName, s.pvName, s.bindPodName, s.nodeName, s.namespace, s.pvcStatus.Phase)
+	return fmt.Sprintf("%-32s%-45s%-28s%-22s%-22s\n", s.pvcName, s.pvName, s.bindPodName, s.nodeName, s.namespace)
 }
 
 func (s *StoragePodLocation) GetNodeName() string {
@@ -52,10 +48,6 @@ func (s *StoragePodLocation) GetPodIp() string {
 
 func (s *StoragePodLocation) GetBindPodName() string {
 	return s.bindPodName
-}
-
-func (s *StoragePodLocation) GetPVCStatus() corev1.PersistentVolumeClaimStatus {
-	return s.pvcStatus
 }
 
 func (s *StoragePodLocation) GetPVName() string {
