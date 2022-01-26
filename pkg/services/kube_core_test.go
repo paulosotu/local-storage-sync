@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,6 +61,7 @@ func parseLog(text string) map[string]string {
 }
 
 func TestStart(t *testing.T) {
+
 	testCases := []struct {
 		serviceStarted    bool
 		cacheToSyncReturn bool
@@ -183,8 +185,11 @@ func TestStart(t *testing.T) {
 			},
 		},
 	}
-
+	var mux sync.RWMutex
 	for _, tc := range testCases {
+		mux.Lock()
+		cSync := tc.cacheToSyncReturn
+		mux.Unlock()
 		t.Run(tc.description, func(t *testing.T) {
 			mockPvcFactory := &mocks.SharedInformerFactory{}
 			podFactory := &mocks.SharedInformerFactory{}
@@ -196,7 +201,9 @@ func TestStart(t *testing.T) {
 				readych:        make(chan struct{}),
 				shutdownch:     make(chan struct{}),
 				waitForCacheToSync: func(controllerName string, stopCh <-chan struct{}, cacheSyncs ...cache.InformerSynced) bool {
-					return tc.cacheToSyncReturn
+					mux.RLock()
+					defer mux.RUnlock()
+					return cSync
 				},
 			}
 			var stopRO <-chan struct{} = coreService.stopch
@@ -437,7 +444,11 @@ func TestGetStorageLocations(t *testing.T) {
 			service: &KubeCorePVCService{
 				newLabelRequirement: func(s1 string, o selection.Operator, s2 []string, po ...field.PathOption) (*labels.Requirement, error) {
 					validateLabelRequirements(t, s1, o, s2, po...)
-					return nil, errors.New("APP_REQUIREMENT_SELECTOR_ERROR")
+					if s1 == "app" {
+						return nil, errors.New("APP_REQUIREMENT_SELECTOR_ERROR")
+					} else {
+						return labels.NewRequirement(s1, o, s2, po...)
+					}
 				},
 				pvClaimLister: &mocks.PersistentVolumeClaimLister{},
 				podLister:     &mocks.PodLister{},

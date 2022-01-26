@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -47,7 +48,8 @@ type IKubeCorePVCService interface {
 }
 
 type KubeCorePVCService struct {
-	started bool
+	started    bool
+	startedMux sync.RWMutex
 
 	stopch  chan struct{}
 	readych chan struct{}
@@ -63,7 +65,8 @@ type KubeCorePVCService struct {
 	pvClaimSynced cache.InformerSynced
 	podSynced     cache.InformerSynced
 
-	waitForCacheToSync  func(controllerName string, stopCh <-chan struct{}, cacheSyncs ...cache.InformerSynced) bool
+	waitForCacheToSync func(controllerName string, stopCh <-chan struct{}, cacheSyncs ...cache.InformerSynced) bool
+
 	newLabelRequirement func(string, selection.Operator, []string, ...field.PathOption) (*labels.Requirement, error)
 	addLabelRequirement func(*labels.Requirement) labels.Selector
 
@@ -138,7 +141,7 @@ func NewKubeCorePVCService(cfg KubeCoreConfig) *KubeCorePVCService {
 }
 
 func (k *KubeCorePVCService) Start() {
-	if k.started {
+	if k.isStarted() {
 		log.Error("KubeCorePVCService already started...")
 		return
 	}
@@ -149,7 +152,7 @@ func (k *KubeCorePVCService) Start() {
 	k.podNodeFactory.Start(k.stopch)
 	k.pvcFactory.Start(k.stopch)
 
-	k.started = true
+	k.setStarted(true)
 
 	go func() {
 		defer log.Info("[KubeCorePVCService] service terminated")
@@ -163,7 +166,7 @@ func (k *KubeCorePVCService) Start() {
 		close(k.readych)
 
 		<-k.stopch
-		k.started = false
+		k.setStarted(false)
 
 	}()
 }
@@ -229,8 +232,8 @@ func (k *KubeCorePVCService) GetNodes() ([]models.Node, error) {
 }
 
 func (k *KubeCorePVCService) Stop() {
-	if k.started {
-		k.started = false
+	if k.isStarted() {
+		k.setStarted(false)
 		log.Info("[KubeCorePVCService] Shutting down")
 		k.stopch <- struct{}{}
 		close(k.stopch)
@@ -238,6 +241,18 @@ func (k *KubeCorePVCService) Stop() {
 		<-k.shutdownch
 		log.Info("[KubeCorePVCService] Shutdown completed")
 	}
+}
+
+func (k *KubeCorePVCService) setStarted(started bool) {
+	k.startedMux.Lock()
+	k.started = started
+	k.startedMux.Unlock()
+}
+
+func (k *KubeCorePVCService) isStarted() bool {
+	k.startedMux.RLock()
+	defer k.startedMux.RUnlock()
+	return k.started
 }
 
 func (k *KubeCorePVCService) createStoragePodLocationList(pvcToPod map[string]corev1.Pod, pvcs map[string]corev1.PersistentVolumeClaim) []models.StoragePodLocation {
